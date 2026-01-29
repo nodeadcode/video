@@ -1,49 +1,43 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from backend.db.models import User
-from backend.api.deps import get_db
-from backend.schemas.user import TelegramAuth
-from backend.schemas.token import Token
-from backend.core.security import verify_telegram_data, create_access_token
-from backend.core.config import settings
+from typing import Any, Dict
+from db.base import get_db
+from db.models import User
+from core.security import verify_telegram_hash, create_access_token
+from core.config import settings
+from schemas.token import Token
 
 router = APIRouter()
 
-@router.post("/login", response_model=Token)
-def login(auth_data: TelegramAuth, db: Session = Depends(get_db)):
-    # Verify Telegram data
-    if not verify_telegram_data(auth_data.dict()):
+@router.post("/login/telegram", response_model=Token)
+def login_telegram(data: Dict[str, Any], db: Session = Depends(get_db)):
+    # 1. Verify Telegram Hash
+    if not verify_telegram_hash(data):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Telegram authentication data",
+            detail="Invalid Telegram authentication"
         )
     
-    # Check if user exists
-    user = db.query(User).filter(User.telegram_id == str(auth_data.id)).first()
+    telegram_id = str(data.get("id"))
     
+    # 2. Find or create user
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
     if not user:
-        # Create new user
-        is_admin = str(auth_data.id) == settings.ADMIN_TELEGRAM_ID
+        # Check if this user should be admin
+        is_admin = telegram_id == settings.ADMIN_TELEGRAM_ID
+        
         user = User(
-            telegram_id=str(auth_data.id),
-            username=auth_data.username,
-            first_name=auth_data.first_name,
-            last_name=auth_data.last_name,
-            photo_url=auth_data.photo_url,
+            telegram_id=telegram_id,
+            username=data.get("username"),
+            first_name=data.get("first_name"),
+            last_name=data.get("last_name"),
+            photo_url=data.get("photo_url"),
             is_admin=is_admin
         )
         db.add(user)
         db.commit()
         db.refresh(user)
-    else:
-        # Update user info
-        user.username = auth_data.username
-        user.first_name = auth_data.first_name
-        user.last_name = auth_data.last_name
-        user.photo_url = auth_data.photo_url
-        db.commit()
-        db.refresh(user)
-        
-    # Create access token
-    access_token = create_access_token(subject=user.id)
+    
+    # 3. Create access token
+    access_token = create_access_token(subject=user.telegram_id)
     return {"access_token": access_token, "token_type": "bearer"}

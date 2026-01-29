@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import axios from 'axios';
 
 interface User {
@@ -10,70 +10,66 @@ interface User {
     first_name?: string;
     last_name?: string;
     photo_url?: string;
-    is_admin: bool;
+    is_admin: boolean;
 }
 
 interface AuthContextType {
     user: User | null;
-    token: string | null;
-    login: (authData: any) => Promise<void>;
+    loading: boolean;
+    login: (telegramUser: any) => Promise<void>;
     logout: () => void;
-    isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
-    const [token, setToken] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const savedToken = localStorage.getItem('token');
-        if (savedToken) {
-            setToken(savedToken);
-            fetchUser(savedToken);
+        const token = localStorage.getItem('token');
+        if (token) {
+            fetchUser(token);
         } else {
-            setIsLoading(false);
+            setLoading(false);
         }
     }, []);
 
-    const fetchUser = async (authToken: string) => {
+    const fetchUser = async (token: string) => {
         try {
             const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/api/users/me`, {
-                headers: { Authorization: `Bearer ${authToken}` },
+                headers: { Authorization: `Bearer ${token}` }
             });
             setUser(response.data);
         } catch (error) {
-            console.error('Failed to fetch user', error);
-            logout();
+            console.error("Failed to fetch user", error);
+            localStorage.removeItem('token');
         } finally {
-            setIsLoading(false);
+            setLoading(false);
         }
     };
 
-    const login = async (authData: any) => {
+    const login = async (telegramUser: any) => {
         try {
-            const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/login`, authData);
+            setLoading(true);
+            const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/login/telegram`, telegramUser);
             const { access_token } = response.data;
             localStorage.setItem('token', access_token);
-            setToken(access_token);
             await fetchUser(access_token);
         } catch (error) {
-            console.error('Login failed', error);
-            throw error;
+            console.error("Login failed", error);
+        } finally {
+            setLoading(false);
         }
     };
 
     const logout = () => {
         localStorage.removeItem('token');
-        setToken(null);
         setUser(null);
-        setIsLoading(false);
     };
 
     return (
-        <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
+        <AuthContext.Provider value={{ user, loading, login, logout }}>
             {children}
         </AuthContext.Provider>
     );

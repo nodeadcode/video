@@ -1,96 +1,90 @@
 import os
 import shutil
+import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
-from backend.db.models import Video, User
-from backend.api.deps import get_db, get_current_user, get_current_admin
-from backend.schemas.video import Video as VideoSchema, VideoCreate, VideoUpdate
+from db.base import get_db
+from db.models import Video, User
+from schemas.video import Video as VideoSchema
+from api.users import get_current_user
+from core.config import settings
 
 router = APIRouter()
 
-UPLOAD_DIR = "uploads"
-VIDEO_DIR = os.path.join(UPLOAD_DIR, "videos")
-THUMB_DIR = os.path.join(UPLOAD_DIR, "thumbnails")
-
-os.makedirs(VIDEO_DIR, exist_ok=True)
-os.makedirs(THUMB_DIR, exist_ok=True)
+def get_admin_user(current_user: User = Depends(get_current_user)):
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Admin access required"
+        )
+    return current_user
 
 @router.get("/", response_model=List[VideoSchema])
-def get_videos(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    if current_user.is_admin:
-        return db.query(Video).all()
-    return db.query(Video).filter(Video.is_public == True).all()
+def list_videos(db: Session = Depends(get_db)):
+    return db.query(Video).order_by(Video.created_at.desc()).all()
 
 @router.get("/{video_id}", response_model=VideoSchema)
-def get_video(
-    video_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+def get_video(video_id: int, db: Session = Depends(get_db)):
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    if not video.is_public and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized")
     return video
 
-@router.post("/", response_model=VideoSchema, status_code=status.HTTP_201_CREATED)
-async def create_video(
+@router.post("/upload", response_model=VideoSchema)
+async def upload_video(
     title: str = Form(...),
     description: Optional[str] = Form(None),
-    is_public: bool = Form(True),
     video_file: UploadFile = File(...),
     thumbnail_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
-    admin_user: User = Depends(get_current_admin)
+    admin_user: User = Depends(get_admin_user)
 ):
-    video_filename = f"{int(os.times().elf_begin)}_{video_file.filename}" if hasattr(os, 'times') else f"{int(1)}_{video_file.filename}"
-    # Use a better unique filename generator
-    import time
-    timestamp = int(time.time())
-    video_filename = f"{timestamp}_{video_file.filename}"
-    video_path = os.path.join(VIDEO_DIR, video_filename)
+    # Process Video
+    video_ext = video_file.filename.split(".")[-1]
+    video_filename = f"{uuid.uuid4()}.{video_ext}"
+    video_path = os.path.join(settings.UPLOAD_DIR, video_filename)
     
     with open(video_path, "wb") as buffer:
         shutil.copyfileobj(video_file.file, buffer)
-        
+    
+    # Process Thumbnail
     thumb_path = None
     if thumbnail_file:
-        thumb_filename = f"{timestamp}_{thumbnail_file.filename}"
-        thumb_path = os.path.join(THUMB_DIR, thumb_filename)
+        thumb_ext = thumbnail_file.filename.split(".")[-1]
+        thumb_filename = f"{uuid.uuid4()}.{thumb_ext}"
+        thumb_path = os.path.join(settings.THUMBNAIL_DIR, thumb_filename)
         with open(thumb_path, "wb") as buffer:
             shutil.copyfileobj(thumbnail_file.file, buffer)
             
-    db_video = Video(
+    new_video = Video(
         title=title,
         description=description,
-        is_public=is_public,
-        video_path=video_path,
-        thumbnail_path=thumb_path
+        file_path=video_filename, # Store relative path or just filename
+        thumbnail_path=thumb_path.replace("\\", "/") if thumb_path else None,
+        owner_id=admin_user.id
     )
-    db.add(db_video)
+    db.add(new_video)
     db.commit()
-    db.refresh(db_video)
-    return db_video
+    db.refresh(new_video)
+    return new_video
 
 @router.delete("/{video_id}")
 def delete_video(
-    video_id: int,
-    db: Session = Depends(get_db),
-    admin_user: User = Depends(get_current_admin)
+    video_id: int, 
+    db: Session = Depends(get_db), 
+    admin_user: User = Depends(get_admin_user)
 ):
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     
     # Delete files
-    if os.path.exists(video.video_path):
-        os.remove(video.video_path)
+    v_path = os.path.join(settings.UPLOAD_DIR, video.file_path)
+    if os.path.exists(v_path):
+        os.remove(v_path)
+    
     if video.thumbnail_path and os.path.exists(video.thumbnail_path):
         os.remove(video.thumbnail_path)
         
@@ -99,33 +93,28 @@ def delete_video(
     return {"detail": "Video deleted"}
 
 @router.get("/stream/{video_id}")
-def stream_video(
-    video_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+def stream_video(video_id: int, db: Session = Depends(get_db)):
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     
-    if not video.is_public and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized")
-        
-    if not os.path.exists(video.video_path):
+    video_path = os.path.join(settings.UPLOAD_DIR, video.file_path)
+    if not os.path.exists(video_path):
         raise HTTPException(status_code=404, detail="Video file not found")
         
-    return FileResponse(video.video_path, media_type="video/mp4")
+    def iterfile():
+        with open(video_path, mode="rb") as file_like:
+            yield from file_like
+
+    return StreamingResponse(iterfile(), media_type="video/mp4")
 
 @router.get("/thumbnail/{video_id}")
-def get_video_thumbnail(
-    video_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+def get_thumbnail(video_id: int, db: Session = Depends(get_db)):
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video or not video.thumbnail_path:
+        # Return a placeholder or 404
         raise HTTPException(status_code=404, detail="Thumbnail not found")
-        
+    
     if not os.path.exists(video.thumbnail_path):
         raise HTTPException(status_code=404, detail="Thumbnail file not found")
         

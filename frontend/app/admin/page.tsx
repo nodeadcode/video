@@ -1,108 +1,107 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import axios from 'axios';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Plus, Trash2, Edit, ExternalLink } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import axios from 'axios';
+import { Trash2, Plus, LayoutDashboard } from 'lucide-react';
+import Link from 'next/link';
 
 interface Video {
     id: number;
     title: string;
-    is_public: boolean;
     created_at: string;
 }
 
 export default function AdminDashboard() {
-    const { token, user } = useAuth();
+    const { user, loading: authLoading } = useAuth();
+    const router = useRouter();
     const [videos, setVideos] = useState<Video[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (token && user?.is_admin) {
-            fetchVideos();
+        if (!authLoading && (!user || !user.is_admin)) {
+            router.push('/');
+            return;
         }
-    }, [token, user]);
 
-    const fetchVideos = async () => {
-        try {
-            const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/api/videos`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setVideos(response.data);
-        } catch (err) {
-            console.error('Failed to fetch videos');
-        } finally {
-            setIsLoading(false);
-        }
-    };
+        const fetchVideos = async () => {
+            try {
+                const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/api/videos/`);
+                setVideos(response.data);
+            } catch (error) {
+                console.error("Failed to fetch videos", error);
+            } finally {
+                setLoading(false);
+            }
+        };
 
-    const deleteVideo = async (id: number) => {
-        if (!confirm('Are you sure you want to delete this video?')) return;
+        if (user?.is_admin) fetchVideos();
+    }, [user, authLoading, router]);
+
+    const handleDelete = async (id: number) => {
+        if (!confirm("Are you sure you want to delete this video?")) return;
         try {
+            const token = localStorage.getItem('token');
             await axios.delete(`${process.env.NEXT_PUBLIC_API_URL}/api/videos/${id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setVideos(videos.filter(v => v.id !== id));
-        } catch (err) {
-            alert('Failed to delete video');
+        } catch (error) {
+            alert("Failed to delete video");
         }
     };
 
-    if (!user?.is_admin) return <div className="py-20 text-center text-red-600">Access Denied</div>;
+    if (authLoading || loading) return <div>Loading...</div>;
 
     return (
-        <div className="space-y-8">
-            <div className="flex items-center justify-between">
-                <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-                <Link
-                    href="/admin/upload"
-                    className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
-                >
+        <div>
+            <div className="flex justify-between items-center mb-8">
+                <h1 className="text-3xl font-bold flex items-center gap-3">
+                    <LayoutDashboard className="text-blue-500" />
+                    <span>Admin Dashboard</span>
+                </h1>
+                <Link href="/admin/upload" className="btn-primary flex items-center gap-2">
                     <Plus size={20} />
-                    <span>Upload Video</span>
+                    <span>Upload New Video</span>
                 </Link>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
+            <div className="glass-card overflow-hidden">
                 <table className="w-full text-left">
-                    <thead className="bg-gray-50 border-b border-gray-200">
+                    <thead className="bg-white/10 text-gray-300">
                         <tr>
-                            <th className="px-6 py-4 text-sm font-semibold text-gray-900">Title</th>
-                            <th className="px-6 py-4 text-sm font-semibold text-gray-900">Status</th>
-                            <th className="px-6 py-4 text-sm font-semibold text-gray-900">Uploaded</th>
-                            <th className="px-6 py-4 text-sm font-semibold text-gray-900 text-right">Actions</th>
+                            <th className="px-6 py-4">Title</th>
+                            <th className="px-6 py-4">Uploaded At</th>
+                            <th className="px-6 py-4 text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200">
-                        {videos.map((video) => (
-                            <tr key={video.id} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-4">
-                                    <span className="font-medium text-gray-900">{video.title}</span>
+                    <tbody className="divide-y divide-white/10">
+                        {videos.map((v) => (
+                            <tr key={v.id} className="hover:bg-white/5 transition-colors">
+                                <td className="px-6 py-4 font-medium">{v.title}</td>
+                                <td className="px-6 py-4 text-gray-400">
+                                    {new Date(v.created_at).toLocaleDateString()}
                                 </td>
-                                <td className="px-6 py-4">
-                                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${video.is_public ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                        {video.is_public ? 'Public' : 'Private'}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 text-sm text-gray-500">
-                                    {new Date(video.created_at).toLocaleDateString()}
-                                </td>
-                                <td className="px-6 py-4 text-right space-x-3">
-                                    <Link href={`/watch/${video.id}`} className="text-gray-400 hover:text-primary-600 inline-block">
-                                        <ExternalLink size={18} />
-                                    </Link>
-                                    <button onClick={() => deleteVideo(video.id)} className="text-gray-400 hover:text-red-600">
-                                        <Trash2 size={18} />
+                                <td className="px-6 py-4 text-right">
+                                    <button
+                                        onClick={() => handleDelete(v.id)}
+                                        className="text-gray-400 hover:text-red-500 transition-colors p-2"
+                                    >
+                                        <Trash2 size={20} />
                                     </button>
                                 </td>
                             </tr>
                         ))}
+                        {videos.length === 0 && (
+                            <tr>
+                                <td colSpan={3} className="px-6 py-12 text-center text-gray-500">
+                                    No videos found. Start by uploading one!
+                                </td>
+                            </tr>
+                        )}
                     </tbody>
                 </table>
-                {videos.length === 0 && !isLoading && (
-                    <div className="py-10 text-center text-gray-500">No videos found.</div>
-                )}
             </div>
         </div>
     );

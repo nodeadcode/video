@@ -8,23 +8,14 @@ class UserBase(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     photo_url: Optional[str] = None
+    is_admin: bool = False
 
 class UserCreate(UserBase):
     pass
 
 class User(UserBase):
     id: int
-    is_admin: bool
     created_at: datetime
 
     class Config:
         from_attributes = True
-
-class TelegramAuth(BaseModel):
-    id: int
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    username: Optional[str] = None
-    photo_url: Optional[str] = None
-    auth_date: int
-    hash: str

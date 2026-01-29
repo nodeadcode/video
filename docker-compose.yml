@@ -7,33 +7,35 @@ services:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
       POSTGRES_DB: videostream
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
 
   backend:
     build: ./backend
-    ports:
-      - "8000:8000"
     environment:
       DATABASE_URL: postgresql://user:password@db:5432/videostream
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      JWT_SECRET: ${JWT_SECRET}
-      ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID}
+      SECRET_KEY: your_super_secret_jwt_key
+      BOT_TOKEN: your_telegram_bot_token
+      ADMIN_TELEGRAM_ID: your_telegram_id_to_be_admin
+      UPLOAD_DIR: uploads/videos
+      THUMBNAIL_DIR: uploads/thumbnails
     volumes:
-      - ./backend:/app
       - ./backend/uploads:/app/uploads
+    ports:
+      - "8000:8000"
     depends_on:
       - db
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_BOT_USERNAME: your_bot_username
     ports:
       - "3000:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_BOT_USERNAME: ${NEXT_PUBLIC_BOT_USERNAME}
     depends_on:
       - backend
 

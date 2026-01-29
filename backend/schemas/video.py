@@ -5,21 +5,16 @@ from datetime import datetime
 class VideoBase(BaseModel):
     title: str
     description: Optional[str] = None
-    is_public: bool = True
 
 class VideoCreate(VideoBase):
     pass
 
-class VideoUpdate(VideoBase):
-    title: Optional[str] = None
-    pass
-
 class Video(VideoBase):
     id: int
-    video_path: str
+    file_path: str
     thumbnail_path: Optional[str] = None
+    owner_id: int
     created_at: datetime
-    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

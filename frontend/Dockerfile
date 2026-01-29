@@ -6,6 +6,13 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
+
+# Environment variables needed during build
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_BOT_USERNAME
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_BOT_USERNAME=$NEXT_PUBLIC_BOT_USERNAME
+
 RUN npm run build
 
 EXPOSE 3000
